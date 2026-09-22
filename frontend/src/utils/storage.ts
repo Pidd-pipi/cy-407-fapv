@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 
-export type EntityStoreName = 'artifacts' | 'exhibitions' | 'annotations' | 'tours';
+export type EntityStoreName = 'artifacts' | 'exhibitions' | 'annotations' | 'tours' | 'removalSnapshots';
 
 export interface StoredFile {
   id: string;
@@ -28,6 +28,10 @@ interface CraftGalleryDB extends DBSchema {
     key: string;
     value: { id: string; [key: string]: unknown };
   };
+  removalSnapshots: {
+    key: string;
+    value: { id: string; [key: string]: unknown };
+  };
   files: {
     key: string;
     value: StoredFile;
@@ -35,7 +39,7 @@ interface CraftGalleryDB extends DBSchema {
 }
 
 const DB_NAME = 'craft-gallery-local';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<CraftGalleryDB>> | null = null;
 const objectUrls = new Map<string, string>();
@@ -49,7 +53,7 @@ export function getDatabase(): Promise<IDBPDatabase<CraftGalleryDB>> {
   if (!dbPromise) {
     dbPromise = openDB<CraftGalleryDB>(DB_NAME, DB_VERSION, {
       upgrade(db) {
-        for (const storeName of ['artifacts', 'exhibitions', 'annotations', 'tours', 'files'] as const) {
+        for (const storeName of ['artifacts', 'exhibitions', 'annotations', 'tours', 'removalSnapshots', 'files'] as const) {
           if (!db.objectStoreNames.contains(storeName)) {
             db.createObjectStore(storeName, { keyPath: 'id' });
           }

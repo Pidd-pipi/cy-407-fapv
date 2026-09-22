@@ -76,7 +76,7 @@ const seedArtifacts: Artifact[] = [
   }
 ];
 
-async function hydrateMedia(artifact: Artifact): Promise<Artifact> {
+export async function hydrateMedia(artifact: Artifact): Promise<Artifact> {
   const fileImages = await Promise.all(artifact.imageFileIds.map((fileId) => createBlobUrl(fileId)));
   const modelUrl = artifact.modelFileId ? await createBlobUrl(artifact.modelFileId) : artifact.modelUrl;
   const persistedImages = fileImages.filter((url): url is string => Boolean(url));
@@ -132,10 +132,12 @@ export const useArtifactStore = defineStore('artifact', {
       this.artifacts = this.artifacts.map((artifact) => (artifact.id === id ? updated : artifact));
       await artifactRepository.save(updated);
     },
-    async deleteArtifact(id: string) {
+    async deleteArtifact(id: string, options: { preserveFiles?: boolean } = {}) {
       const current = this.getById(id);
       if (!current) return;
-      await Promise.all([...current.imageFileIds, current.modelFileId].filter(Boolean).map((fileId) => deleteBlobFile(fileId as string)));
+      if (!options.preserveFiles) {
+        await Promise.all([...current.imageFileIds, current.modelFileId].filter(Boolean).map((fileId) => deleteBlobFile(fileId as string)));
+      }
       this.artifacts = this.artifacts.filter((artifact) => artifact.id !== id);
       await artifactRepository.remove(id);
     },

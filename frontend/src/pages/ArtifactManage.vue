@@ -14,6 +14,15 @@
       </div>
     </div>
 
+    <div v-if="removalStore.lastSnapshot" class="removal-banner">
+      <span>
+        已移出「{{ removalStore.lastSnapshot.artifact.name }}」，其关联标注、展览引用顺序与导览节点已保存快照。
+      </span>
+      <n-button size="small" secondary type="warning" :loading="removalStore.restoring" @click="undoRemoval">
+        撤销移出
+      </n-button>
+    </div>
+
     <div class="library-grid">
       <section class="artifact-list" :class="viewMode">
         <ArtifactCard
@@ -80,12 +89,14 @@ import { useMessage } from 'naive-ui';
 import ArtifactCard from '@/components/common/ArtifactCard.vue';
 import FileUploader from '@/components/common/FileUploader.vue';
 import { useArtifactStore } from '@/stores/artifact';
+import { useRemovalStore } from '@/stores/removal';
 import type { ArtifactDraft } from '@/types';
 import { CraftCategory, craftCategoryLabels } from '@/types';
 
 const router = useRouter();
 const message = useMessage();
 const artifactStore = useArtifactStore();
+const removalStore = useRemovalStore();
 const viewMode = ref<'grid' | 'list'>('grid');
 const selectedId = ref(artifactStore.artifacts[0]?.id ?? '');
 const isCreating = ref(false);
@@ -176,11 +187,30 @@ async function uploadFiles(payload: { images: File[]; model?: File }) {
 }
 
 async function deleteArtifact(id: string) {
-  await artifactStore.deleteArtifact(id);
+  const result = await removalStore.removeArtifact(id);
+  if (result === 'missing') {
+    message.warning('展品不存在或已被移出');
+    return;
+  }
   selectedId.value = artifactStore.artifacts[0]?.id ?? '';
   isCreating.value = !selectedId.value;
   Object.assign(draft, selectedArtifact.value ?? artifactStore.createEmptyDraft());
-  message.success('展品已删除');
+  message.success(result === 'snapshot' ? '展品已移出，可在页面顶部撤销' : '展品已删除');
+}
+
+async function undoRemoval() {
+  const result = await removalStore.restoreLastRemoval();
+  if (result === 'restored') {
+    message.success('已还原展品及其关联标注、展览顺序与导览节点');
+  } else if (result === 'duplicate') {
+    message.error('还原失败：该展品已存在，未覆盖当前数据');
+  } else if (result === 'busy') {
+    message.warning('正在还原中，请勿重复操作');
+  } else if (result === 'empty') {
+    message.warning('没有可撤销的移出记录');
+  } else {
+    message.error('还原失败，当前数据未被修改，请稍后重试');
+  }
 }
 </script>
 
@@ -194,6 +224,19 @@ async function deleteArtifact(id: string) {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.removal-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  color: var(--museum-ink);
+  background: rgba(157, 123, 54, 0.12);
+  border: 1px solid rgba(157, 123, 54, 0.45);
+  border-radius: 8px;
+  font-size: 14px;
 }
 
 .library-grid {
