@@ -68,6 +68,19 @@ export const useExhibitionStore = defineStore('exhibition', {
     async reorderArtifacts(id: string, artifactIds: string[]) {
       await this.updateExhibition(id, { artifactIds });
     },
+    /** 移出事务已提交后，从所有展览的引用顺序中移除该展品 */
+    detachArtifact(artifactId: string) {
+      this.exhibitions = this.exhibitions.map((exhibition) =>
+        exhibition.artifactIds.includes(artifactId)
+          ? { ...exhibition, artifactIds: exhibition.artifactIds.filter((id) => id !== artifactId) }
+          : exhibition
+      );
+    },
+    /** 撤销移出后，用事务写回的最新记录同步内存（只更新，不覆盖未涉及的展览） */
+    syncUpdated(records: Exhibition[]) {
+      const byId = new Map(records.map((record) => [record.id, record]));
+      this.exhibitions = this.exhibitions.map((exhibition) => byId.get(exhibition.id) ?? exhibition);
+    },
     async publishExhibition(id: string) {
       await this.updateExhibition(id, { status: ExhibitionStatus.Published });
     },

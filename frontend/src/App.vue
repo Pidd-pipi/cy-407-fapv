@@ -1,6 +1,7 @@
 <template>
   <n-config-provider :theme-overrides="themeOverrides">
     <n-message-provider>
+      <n-dialog-provider>
       <div class="app-shell">
         <header class="topbar">
           <RouterLink class="brand" to="/">
@@ -22,6 +23,7 @@
           </div>
         </main>
       </div>
+      </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
 </template>
@@ -33,12 +35,14 @@ import type { GlobalThemeOverrides } from 'naive-ui';
 import { useAnnotationStore } from '@/stores/annotation';
 import { useArtifactStore } from '@/stores/artifact';
 import { useExhibitionStore } from '@/stores/exhibition';
+import { useRemovalStore } from '@/stores/removal';
 import { useTourStore } from '@/stores/tour';
 
 const artifactStore = useArtifactStore();
 const exhibitionStore = useExhibitionStore();
 const annotationStore = useAnnotationStore();
 const tourStore = useTourStore();
+const removalStore = useRemovalStore();
 const ready = ref(false);
 
 const galleryPath = computed(() => `/exhibitions/${exhibitionStore.exhibitions[0]?.id ?? 'exhibition-heritage-hall'}`);
@@ -70,6 +74,7 @@ onMounted(async () => {
   await exhibitionStore.load();
   await annotationStore.load();
   await tourStore.load();
+  await removalStore.load();
   ready.value = true;
 });
 </script>

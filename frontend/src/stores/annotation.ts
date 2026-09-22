@@ -78,6 +78,18 @@ export const useAnnotationStore = defineStore('annotation', {
     async deleteAnnotation(id: string) {
       this.annotations = this.annotations.filter((annotation) => annotation.id !== id);
       await annotationRepository.remove(id);
+    },
+    /** 移出事务已提交后，移除该展品的关联标注 */
+    detachByArtifact(artifactId: string) {
+      this.annotations = this.annotations.filter((annotation) => annotation.artifactId !== artifactId);
+    },
+    /** 撤销移出时还原关联标注，已存在的不覆盖 */
+    restoreAnnotations(annotations: Annotation[]) {
+      const existingIds = new Set(this.annotations.map((annotation) => annotation.id));
+      const missing = annotations.filter((annotation) => !existingIds.has(annotation.id));
+      if (missing.length > 0) {
+        this.annotations = [...this.annotations, ...missing];
+      }
     }
   }
 });

@@ -1,4 +1,4 @@
-import type { Annotation, Artifact, Exhibition, Tour } from '@/types';
+import type { Annotation, Artifact, ArtifactRemovalSnapshot, Exhibition, Tour } from '@/types';
 import {
   deleteRecord,
   getAllRecords,
@@ -22,3 +22,4 @@ export const artifactRepository = createRepository<Artifact>('artifacts');
 export const exhibitionRepository = createRepository<Exhibition>('exhibitions');
 export const annotationRepository = createRepository<Annotation>('annotations');
 export const tourRepository = createRepository<Tour>('tours');
+export const artifactRemovalRepository = createRepository<ArtifactRemovalSnapshot>('artifactRemovals');

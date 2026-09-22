@@ -96,6 +96,19 @@ export const useTourStore = defineStore('tour', {
       const current = this.getById(tourId);
       if (!current) return;
       await this.updateTour(tourId, { nodes: current.nodes.filter((node) => node.id !== nodeId) });
+    },
+    /** 移出事务已提交后，从所有导览中移除指向该展品的节点 */
+    detachArtifact(artifactId: string) {
+      this.tours = this.tours.map((tour) =>
+        tour.nodes.some((node) => node.artifactId === artifactId)
+          ? { ...tour, nodes: tour.nodes.filter((node) => node.artifactId !== artifactId) }
+          : tour
+      );
+    },
+    /** 撤销移出后，用事务写回的最新导览同步内存（只更新，不覆盖未涉及的导览） */
+    syncUpdated(records: Tour[]) {
+      const byId = new Map(records.map((record) => [record.id, record]));
+      this.tours = this.tours.map((tour) => byId.get(tour.id) ?? tour);
     }
   }
 });

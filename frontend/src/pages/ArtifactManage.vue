@@ -14,6 +14,18 @@
       </div>
     </div>
 
+    <div v-if="removalStore.latestSnapshot" class="undo-banner" role="status">
+      <div class="undo-info">
+        <strong>最近一次移出：{{ removalStore.latestSnapshot.artifact.name }}</strong>
+        <span>{{ removalSummary }} · {{ removedAtText }}</span>
+        <span class="undo-hint">展品资料及关联关系已保存，可连同原有顺序一起还原。</span>
+      </div>
+      <div class="undo-actions">
+        <n-button type="primary" size="small" :loading="restoring" @click="undoRemoval">撤销移出</n-button>
+        <n-button quaternary size="small" :disabled="restoring" @click="confirmDiscard">不再保留</n-button>
+      </div>
+    </div>
+
     <div class="library-grid">
       <section class="artifact-list" :class="viewMode">
         <ArtifactCard
@@ -76,20 +88,41 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { useMessage } from 'naive-ui';
+import { useDialog, useMessage } from 'naive-ui';
 import ArtifactCard from '@/components/common/ArtifactCard.vue';
 import FileUploader from '@/components/common/FileUploader.vue';
 import { useArtifactStore } from '@/stores/artifact';
+import { useRemovalStore } from '@/stores/removal';
+import { RemovalConflictError } from '@/api/artifact-removal';
 import type { ArtifactDraft } from '@/types';
 import { CraftCategory, craftCategoryLabels } from '@/types';
 
 const router = useRouter();
 const message = useMessage();
+const dialog = useDialog();
 const artifactStore = useArtifactStore();
+const removalStore = useRemovalStore();
 const viewMode = ref<'grid' | 'list'>('grid');
 const selectedId = ref(artifactStore.artifacts[0]?.id ?? '');
 const isCreating = ref(false);
+const restoring = ref(false);
 const draft = reactive<ArtifactDraft>(artifactStore.createEmptyDraft());
+
+const removedAtText = computed(() => {
+  const removedAt = removalStore.latestSnapshot?.removedAt;
+  if (!removedAt) return '';
+  return new Date(removedAt).toLocaleString('zh-CN', { hour12: false });
+});
+
+const removalSummary = computed(() => {
+  const snapshot = removalStore.latestSnapshot;
+  if (!snapshot) return '';
+  const parts: string[] = [`${snapshot.annotations.length} 条标注`];
+  parts.push(`${snapshot.exhibitions.length} 处展览引用`);
+  const tourCount = new Set(snapshot.tourNodes.map((node) => node.tourId)).size;
+  parts.push(`${tourCount} 条导览`);
+  return `已保存 ${parts.join('、')}`;
+});
 
 const selectedArtifact = computed(() => artifactStore.getById(selectedId.value));
 const categoryOptions = Object.values(CraftCategory).map((value) => ({
@@ -176,11 +209,70 @@ async function uploadFiles(payload: { images: File[]; model?: File }) {
 }
 
 async function deleteArtifact(id: string) {
-  await artifactStore.deleteArtifact(id);
-  selectedId.value = artifactStore.artifacts[0]?.id ?? '';
-  isCreating.value = !selectedId.value;
-  Object.assign(draft, selectedArtifact.value ?? artifactStore.createEmptyDraft());
-  message.success('展品已删除');
+  try {
+    const outcome = await removalStore.removeArtifact(id);
+    if (selectedId.value === id) {
+      selectedId.value = artifactStore.artifacts[0]?.id ?? '';
+      isCreating.value = !selectedId.value;
+      Object.assign(draft, selectedArtifact.value ?? artifactStore.createEmptyDraft());
+    }
+    if (outcome.mode === 'snapshot') {
+      message.info('展品已移出，关联资料已保存，可在顶部撤销移出');
+    } else {
+      message.success('展品已删除');
+    }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '移出失败，请重试');
+  }
+}
+
+async function undoRemoval() {
+  restoring.value = true;
+  try {
+    const summary = await removalStore.restoreLatest();
+    selectedId.value = summary.artifactId;
+    isCreating.value = false;
+    if (selectedArtifact.value) {
+      Object.assign(draft, {
+        name: selectedArtifact.value.name,
+        description: selectedArtifact.value.description,
+        author: selectedArtifact.value.author,
+        category: selectedArtifact.value.category,
+        dimensions: selectedArtifact.value.dimensions,
+        year: selectedArtifact.value.year,
+        material: selectedArtifact.value.material,
+        images: [...selectedArtifact.value.images],
+        modelUrl: selectedArtifact.value.modelUrl,
+        imageFileIds: [...selectedArtifact.value.imageFileIds],
+        modelFileId: selectedArtifact.value.modelFileId
+      });
+    }
+    const skippedCount = summary.missingExhibitionIds.length + summary.missingTourIds.length;
+    message.success(
+      skippedCount === 0
+        ? '已撤销移出，展品连同原有标注、展览顺序和导览节点一起还原'
+        : '已撤销移出；部分展览或导览已不存在，仅还原了仍存在的关联'
+    );
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '还原失败，当前数据未被修改');
+  } finally {
+    restoring.value = false;
+  }
+}
+
+function confirmDiscard() {
+  const snapshot = removalStore.latestSnapshot;
+  if (!snapshot) return;
+  dialog.warning({
+    title: '不再保留该移出记录？',
+    content: `将永久删除「${snapshot.artifact.name}」的快照及其图片、模型文件，且无法再撤销。`,
+    positiveText: '永久丢弃',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await removalStore.discardSnapshot();
+      message.success('移出记录已丢弃');
+    }
+  });
 }
 </script>
 
@@ -188,6 +280,43 @@ async function deleteArtifact(id: string) {
 .artifact-manage {
   display: grid;
   gap: 18px;
+}
+
+.undo-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: rgba(157, 123, 54, 0.12);
+  border: 1px solid rgba(157, 123, 54, 0.55);
+  border-radius: 8px;
+}
+
+.undo-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: baseline;
+  color: var(--museum-ink);
+  font-size: 13px;
+}
+
+.undo-info strong {
+  font-family: var(--font-display);
+  font-size: 15px;
+}
+
+.undo-hint {
+  flex-basis: 100%;
+  color: rgba(31, 46, 41, 0.68);
+}
+
+.undo-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .library-actions {

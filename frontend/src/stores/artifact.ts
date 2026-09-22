@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { artifactRepository } from '@/api/storage';
 import type { Artifact, ArtifactDraft } from '@/types';
 import { CraftCategory } from '@/types';
-import { createBlobUrl, createId, deleteBlobFile, saveBlobFile } from '@/utils/storage';
+import { createBlobUrl, createId, saveBlobFile } from '@/utils/storage';
 
 function craftImage(label: string, background: string, accent: string): string {
   const svg = `
@@ -132,12 +132,23 @@ export const useArtifactStore = defineStore('artifact', {
       this.artifacts = this.artifacts.map((artifact) => (artifact.id === id ? updated : artifact));
       await artifactRepository.save(updated);
     },
-    async deleteArtifact(id: string) {
-      const current = this.getById(id);
-      if (!current) return;
-      await Promise.all([...current.imageFileIds, current.modelFileId].filter(Boolean).map((fileId) => deleteBlobFile(fileId as string)));
+    /** 移出快照事务已提交后，同步内存列表 */
+    detachArtifact(id: string) {
       this.artifacts = this.artifacts.filter((artifact) => artifact.id !== id);
-      await artifactRepository.remove(id);
+    },
+    indexOfArtifact(id: string): number {
+      return this.artifacts.findIndex((artifact) => artifact.id === id);
+    },
+    /** 撤销移出时把展品（连同媒体文件）按原顺序插回内存列表 */
+    async restoreArtifactRecord(artifact: Artifact, index: number) {
+      if (this.getById(artifact.id)) return;
+      const hydrated = await hydrateMedia(artifact);
+      const insertAt = Math.min(Math.max(index, 0), this.artifacts.length);
+      this.artifacts = [
+        ...this.artifacts.slice(0, insertAt),
+        hydrated,
+        ...this.artifacts.slice(insertAt)
+      ];
     },
     async attachFiles(artifactId: string, imageFiles: File[], modelFile?: File) {
       const current = this.getById(artifactId);
